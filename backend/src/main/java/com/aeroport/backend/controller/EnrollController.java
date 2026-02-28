@@ -13,18 +13,19 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
+
 
 @RestController
 @RequestMapping("/api")
 public class EnrollController {
+
 
     private final CryptoService cryptoService;
     private final PythonIntegrationService pythonIntegrationService;
     private final JwtService jwtService;
     private final QrService qrService;
 
-    // Injectam toate serviciile de care avem nevoie
+
     public EnrollController(CryptoService cryptoService, PythonIntegrationService pythonIntegrationService, JwtService jwtService, QrService qrService) {
         this.cryptoService = cryptoService;
         this.pythonIntegrationService = pythonIntegrationService;
@@ -43,23 +44,48 @@ public class EnrollController {
         }
 
         try {
+
             // 1. Criptam poza si o trimitem la Python
             String encryptedData = cryptoService.encryptImage(photo.getBytes());
-            String biometricVector = pythonIntegrationService.sendImageToPython(encryptedData);
+            String pythonJsonResponse = pythonIntegrationService.sendImageToPython(encryptedData);
 
-            // Verificam daca Python ne-a dat o eroare in loc de vector
-            if (biometricVector == null || biometricVector.contains("error")) {
+            if (pythonJsonResponse == null || pythonJsonResponse.contains("error")) {
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Eroare la procesarea fetei in Python.");
             }
 
-            // 2. Generam Pasaportul Digital (JWT)
-            String token = jwtService.generateToken(name, flight, biometricVector);
+            // 2. Taierea vectorului
 
-            // 3. Generam Imaginea QR Code
-            String qrCodeBase64 = qrService.generateQrCode(token);
+            String justTheVector = "";
 
-            // 4. Returnam rezultatul final catre React
-            EnrollResponse response = new EnrollResponse(true, token, qrCodeBase64, name, flight);
+            if (pythonJsonResponse.contains("\"biometric_vector\":\"")) {
+                int startIndex = pythonJsonResponse.indexOf("\"biometric_vector\":\"") + 20;
+                int endIndex = pythonJsonResponse.indexOf("\"", startIndex);
+                justTheVector = pythonJsonResponse.substring(startIndex, endIndex);
+            }
+            else if (pythonJsonResponse.contains("\"biometric_vector\": \"")) {
+                int startIndex = pythonJsonResponse.indexOf("\"biometric_vector\": \"") + 21;
+                int endIndex = pythonJsonResponse.indexOf("\"", startIndex);
+                justTheVector = pythonJsonResponse.substring(startIndex, endIndex);
+            }
+            else {
+                justTheVector = "Vector_Negasit";
+                System.out.println("Atentie: Nu am gasit 'biometric_vector' in JSON-ul de la Python!");
+            }
+
+            // 3. Extragem Numele si Prenumele
+            String[] nameParts = name.split(" ", 2);
+            String lastName = nameParts.length > 0 ? nameParts[0] : "Nume";
+            String firstName = nameParts.length > 1 ? nameParts[1] : "Prenume";
+            String date = java.time.LocalDate.now().toString();
+
+            // 4. CONSTRUIM STRING-UL
+            String rawQrData = justTheVector + "|" + lastName + "|" + firstName + "|" + flight + "|" + date;
+
+            // 5. Generam Imaginea QR Code
+            String qrCodeBase64 = qrService.generateQrCode(rawQrData);
+
+            // 6. Returnam rezultatul final
+            EnrollResponse response = new EnrollResponse(true, rawQrData, qrCodeBase64, name, flight);
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {

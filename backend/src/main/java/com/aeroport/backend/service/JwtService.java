@@ -18,7 +18,6 @@ public class JwtService {
     private final PublicKey publicKey;
 
     // Constructor: Generam cheile automat in memorie la pornirea aplicatiei!
-    // Asta elimina complet nevoia de fisiere si copy-paste.
     public JwtService() throws Exception {
         KeyPairGenerator keyGenerator = KeyPairGenerator.getInstance("RSA");
         keyGenerator.initialize(2048);
