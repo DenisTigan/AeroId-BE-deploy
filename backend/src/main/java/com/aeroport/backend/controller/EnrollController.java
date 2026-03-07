@@ -1,33 +1,41 @@
 package com.aeroport.backend.controller;
 
 import com.aeroport.backend.dto.response.EnrollResponse;
+import com.aeroport.backend.model.FlightRecord;
+import com.aeroport.backend.service.CryptoService;
+import com.aeroport.backend.service.FlightDatabaseService;
 import com.aeroport.backend.service.JwtService;
+import com.aeroport.backend.service.PythonIntegrationService;
 import com.aeroport.backend.service.QrService;
 import org.springframework.http.HttpStatus;
-import com.aeroport.backend.service.CryptoService;
-import com.aeroport.backend.service.PythonIntegrationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api")
 public class EnrollController {
-
 
     private final CryptoService cryptoService;
     private final PythonIntegrationService pythonIntegrationService;
     private final JwtService jwtService;
     private final QrService qrService;
 
+    // NOU: Am adus serviciul bazei de date!
+    private final FlightDatabaseService flightDatabaseService;
 
-    public EnrollController(CryptoService cryptoService, PythonIntegrationService pythonIntegrationService, JwtService jwtService, QrService qrService) {
+    public EnrollController(CryptoService cryptoService,
+                            PythonIntegrationService pythonIntegrationService,
+                            JwtService jwtService,
+                            QrService qrService,
+                            FlightDatabaseService flightDatabaseService) {
         this.cryptoService = cryptoService;
         this.pythonIntegrationService = pythonIntegrationService;
         this.jwtService = jwtService;
         this.qrService = qrService;
+        this.flightDatabaseService = flightDatabaseService;
     }
 
     @PostMapping("/enroll")
@@ -41,8 +49,24 @@ public class EnrollController {
         }
 
         try {
+            // 1. Curatam numele (reparam problema cu %20)
+            String cleanName = name.replace("%20", " ");
+            String[] nameParts = cleanName.trim().split(" ", 2);
+            String firstName = nameParts.length > 0 ? nameParts[0].trim() : "";
+            String lastName = nameParts.length > 1 ? nameParts[1].trim() : "";
 
-            // 1. Criptam poza si o trimitem la Python
+            // 2. VERIFICARE DE SECURITATE IN BAZA DE DATE!
+            Optional<FlightRecord> passengerOpt = flightDatabaseService.getPassengerFlightDetails(flight.trim(), lastName, firstName);
+
+            // Daca nu il gasim, aruncam eroarea si OPRIM executia aici!
+            if (passengerOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body("Eroare de securitate: Pasagerul " + cleanName + " nu are un bilet valid pentru zborul " + flight + ".");
+            }
+
+            // --- Daca a trecut de IF-ul de mai sus, pasagerul e pe bune! ---
+
+            // 3. Criptam poza si o trimitem la Python
             String encryptedData = cryptoService.encryptImage(photo.getBytes());
             String pythonJsonResponse = pythonIntegrationService.sendImageToPython(encryptedData);
 
@@ -50,39 +74,33 @@ public class EnrollController {
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Eroare la procesarea fetei in Python.");
             }
 
-            // 2. Taierea vectorului
-
+            // 4. Taierea vectorului biometric
             String justTheVector = "";
-
             if (pythonJsonResponse.contains("\"biometric_vector\":\"")) {
                 int startIndex = pythonJsonResponse.indexOf("\"biometric_vector\":\"") + 20;
                 int endIndex = pythonJsonResponse.indexOf("\"", startIndex);
                 justTheVector = pythonJsonResponse.substring(startIndex, endIndex);
-            }
-            else if (pythonJsonResponse.contains("\"biometric_vector\": \"")) {
+            } else if (pythonJsonResponse.contains("\"biometric_vector\": \"")) {
                 int startIndex = pythonJsonResponse.indexOf("\"biometric_vector\": \"") + 21;
                 int endIndex = pythonJsonResponse.indexOf("\"", startIndex);
                 justTheVector = pythonJsonResponse.substring(startIndex, endIndex);
-            }
-            else {
+            } else {
                 justTheVector = "Vector_Negasit";
                 System.out.println("Atentie: Nu am gasit 'biometric_vector' in JSON-ul de la Python!");
             }
 
-            // 3. Extragem Numele si Prenumele
-            String[] nameParts = name.split(" ", 2);
-            String firstName = nameParts.length > 0 ? nameParts[0] : "Prenume"; // Andrei
-            String lastName = nameParts.length > 1 ? nameParts[1] : "Nume";     // Ticarat
-            String date = java.time.LocalDate.now().toString();
+            // 5. Calculam data de expirare (Acum + 48 ore)
+            java.time.LocalDateTime expirationDate = java.time.LocalDateTime.now().plusHours(48);
+            String expirationString = expirationDate.toString();
 
-            // 4. CONSTRUIM STRING-UL
-            String rawQrData = justTheVector + "|" + lastName + "|" + firstName + "|" + flight + "|" + date;
+            // 6. CONSTRUIM STRING-UL (Vector + Nume + Prenume + Zbor + Data Expirare)
+            String rawQrData = justTheVector + "|" + lastName + "|" + firstName + "|" + flight + "|" + expirationString;
 
-            // 5. Generam Imaginea QR Code
+            // 7. Generam Imaginea QR Code
             String qrCodeBase64 = qrService.generateQrCode(rawQrData);
 
-            // 6. Returnam rezultatul final
-            EnrollResponse response = new EnrollResponse(true, rawQrData, qrCodeBase64, name, flight);
+            // 8. Returnam rezultatul final
+            EnrollResponse response = new EnrollResponse(true, rawQrData, qrCodeBase64, cleanName, flight);
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {

@@ -40,19 +40,44 @@ public class VerifyController {
         try {
             String[] qrParts = qrData.split("\\|");
 
-            if (qrParts.length < 4) {
-                return ResponseEntity.badRequest().body("Eroare: Format QR incomplet.");
+            // Cerem 5 elemente acum
+            if (qrParts.length < 5) {
+                return ResponseEntity.badRequest().body("Eroare: Format QR incomplet sau versiune veche de bilet.");
             }
 
             String biometricVector = qrParts[0];
             String lastName = qrParts[1];
             String firstName = qrParts[2];
             String flight = qrParts[3];
+            String expirationString = qrParts[4]; // Extragem data
+
             String fullName = lastName + " " + firstName;
 
+            // --- NOU: Verificam daca QR-ul este expirat ---
+            try {
+                java.time.LocalDateTime expirationDate = java.time.LocalDateTime.parse(expirationString);
+
+                // Daca timpul de acum este DUPA timpul din bilet -> Respins!
+                if (java.time.LocalDateTime.now().isAfter(expirationDate)) {
+                    java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm");
+                    String dataFrumoasa = expirationDate.format(formatter);
+
+                    return ResponseEntity.ok(new VerifyResponse(
+                            false,
+                            fullName,
+                            flight,
+                            "Acces Respins! Biletul a expirat la: " + dataFrumoasa,
+                            null,
+                            "QR Expirat"
+                    ));
+                }
+            } catch (java.time.format.DateTimeParseException e) {
+                return ResponseEntity.badRequest().body("Eroare: Formatul datei din QR este invalid.");
+            }
+
+            // Daca biletul NU e expirat, continuam normal...
             String encryptedLivePhoto = cryptoService.encryptImage(livePhoto.getBytes());
 
-            // AICI E SCHIMBAREA: Acum primim un obiect cu 3 campuri, nu doar un boolean!
             PythonVerifyResult aiResult = pythonIntegrationService.verifyFaceWithPython(encryptedLivePhoto, biometricVector);
 
             // Dam verdictul pe baza aiResult.isMatch() si trimitem TOTUL catre React
