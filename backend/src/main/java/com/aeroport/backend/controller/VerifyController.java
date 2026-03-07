@@ -1,6 +1,7 @@
 package com.aeroport.backend.controller;
 
 
+import com.aeroport.backend.dto.intern.PythonVerifyResult;
 import com.aeroport.backend.dto.response.VerifyResponse;
 import com.aeroport.backend.service.CryptoService;
 import com.aeroport.backend.service.PythonIntegrationService;
@@ -29,7 +30,6 @@ public class VerifyController {
             @RequestParam("qrData") String qrData,
             @RequestParam("livePhoto") MultipartFile livePhoto) {
 
-        // 1. Validări de siguranță
         if (livePhoto == null || livePhoto.isEmpty()) {
             return ResponseEntity.badRequest().body("Eroare: Poza live de la poarta lipseste.");
         }
@@ -38,33 +38,43 @@ public class VerifyController {
         }
 
         try {
-            // 2. Taiem textul scanat din QR ca sa scoatem vectorul si datele
             String[] qrParts = qrData.split("\\|");
 
             if (qrParts.length < 4) {
                 return ResponseEntity.badRequest().body("Eroare: Format QR incomplet.");
             }
 
-            String biometricVector = qrParts[0]; // Primul element este fix H4sIA...
+            String biometricVector = qrParts[0];
             String lastName = qrParts[1];
             String firstName = qrParts[2];
             String flight = qrParts[3];
-
             String fullName = lastName + " " + firstName;
 
-            // 3. Criptam poza NOUA facuta live la poarta
             String encryptedLivePhoto = cryptoService.encryptImage(livePhoto.getBytes());
 
-            // 4. Verificam pozele
-            boolean isMatch = pythonIntegrationService.verifyFaceWithPython(encryptedLivePhoto, biometricVector);
+            // AICI E SCHIMBAREA: Acum primim un obiect cu 3 campuri, nu doar un boolean!
+            PythonVerifyResult aiResult = pythonIntegrationService.verifyFaceWithPython(encryptedLivePhoto, biometricVector);
 
-            // 5. Dam verdictul
-            if (isMatch) {
-                VerifyResponse response = new VerifyResponse(true, fullName, flight, "Acces Permis! Fata confirmata.");
+            // Dam verdictul pe baza aiResult.isMatch() si trimitem TOTUL catre React
+            if (aiResult.isMatch()) {
+                VerifyResponse response = new VerifyResponse(
+                        true,
+                        fullName,
+                        flight,
+                        "Acces Permis! Fata confirmata.",
+                        aiResult.distance(),
+                        aiResult.message()
+                );
                 return ResponseEntity.ok(response);
             } else {
-                VerifyResponse response = new VerifyResponse(false, fullName, flight, "Acces Respins! Fata nu se potriveste cu biletul.");
-                // Returnam 403 Forbidden sau 200 OK cu match=false
+                VerifyResponse response = new VerifyResponse(
+                        false,
+                        fullName,
+                        flight,
+                        "Acces Respins! Motiv AI: " + aiResult.message(),
+                        aiResult.distance(),
+                        aiResult.message()
+                );
                 return ResponseEntity.ok(response);
             }
 

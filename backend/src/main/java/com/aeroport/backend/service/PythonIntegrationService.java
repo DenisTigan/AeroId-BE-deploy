@@ -1,5 +1,6 @@
 package com.aeroport.backend.service;
 
+import com.aeroport.backend.dto.intern.PythonVerifyResult;
 import com.aeroport.backend.dto.request.PythonExtractRequest;
 import com.aeroport.backend.dto.request.PythonVerifyRequest;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -36,44 +37,51 @@ public class PythonIntegrationService {
         }
     }
 
-    public boolean verifyFaceWithPython(String encryptedImage, String biometricVector) {
+    // Schimbam tipul returnat din boolean in PythonVerifyResult
+    public PythonVerifyResult verifyFaceWithPython(String encryptedImage, String biometricVector) {
         String pythonVerifyUrl = "https://aeroid-py.ticaratandrei.dev/api/verify";
-
         PythonVerifyRequest requestBody = new PythonVerifyRequest(encryptedImage, biometricVector);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-
         HttpEntity<PythonVerifyRequest> requestEntity = new HttpEntity<>(requestBody, headers);
 
         try {
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    pythonVerifyUrl,
-                    requestEntity,
-                    String.class
-            );
-
+            ResponseEntity<String> response = restTemplate.postForEntity(pythonVerifyUrl, requestEntity, String.class);
             String responseBody = response.getBody();
-            System.out.println("RASPUNS BRUT DE LA PYTHON (VERIFY): " + responseBody);
+            System.out.println("RASPUNS BRUT DE LA PYTHON: " + responseBody);
 
             if (response.getStatusCode().is2xxSuccessful() && responseBody != null) {
                 ObjectMapper mapper = new ObjectMapper();
                 JsonNode rootNode = mapper.readTree(responseBody);
 
-                if (rootNode.has("match")) {
-                    boolean isMatch = rootNode.get("match").asBoolean();
-                    System.out.println("Verdict final extras: " + isMatch);
-                    return isMatch;
-                } else if (responseBody.toLowerCase().contains("true")) {
-                    return true;
+                // Cautam obiectul "verification_results" in JSON-ul de la Python
+                if (rootNode.has("verification_results")) {
+                    JsonNode resultsNode = rootNode.get("verification_results");
+
+                    // Extragem fiecare valoare in parte, cu grija la null-uri
+                    boolean isMatch = resultsNode.has("is_match") && resultsNode.get("is_match").asBoolean();
+
+                    Double distance = null;
+                    if (resultsNode.hasNonNull("distance")) {
+                        distance = resultsNode.get("distance").asDouble();
+                    }
+
+                    String message = "Fara mesaj";
+                    if (resultsNode.hasNonNull("message")) {
+                        message = resultsNode.get("message").asText();
+                    }
+
+                    // Returnam pachetul complet!
+                    return new PythonVerifyResult(isMatch, distance, message);
                 }
             }
-
-            return false;
+            // Fail-safe: daca JSON-ul e prost, returnam false si date goale
+            return new PythonVerifyResult(false, null, "Eroare la parsarea JSON-ului din Python.");
 
         } catch (Exception e) {
             System.err.println("Eroare la comunicarea cu Python pt verificare: " + e.getMessage());
-            return false;
+            return new PythonVerifyResult(false, null, "Eroare de conexiune cu serverul Python.");
         }
     }
 }

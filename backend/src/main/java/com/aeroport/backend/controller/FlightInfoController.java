@@ -31,12 +31,15 @@ public class FlightInfoController {
 
         try {
             // 1. Despartim numele exact cum am facut si inainte
-            String[] nameParts = name.split(" ", 2);
-            String lastName = nameParts.length > 0 ? nameParts[0] : "";
-            String firstName = nameParts.length > 1 ? nameParts[1] : "";
+            String cleanName = name.replace("%20", " ");
 
-            // 2. Cautam in baza de date (MySQL)
-            Optional<FlightRecord> passengerOpt = flightDatabaseService.getPassengerFlightDetails(flight, lastName, firstName);
+            // 2. Acum despartim numele curat
+            String[] nameParts = cleanName.trim().split(" ", 2);
+            String firstName = nameParts.length > 0 ? nameParts[0].trim() : "";
+            String lastName = nameParts.length > 1 ? nameParts[1].trim() : "";
+
+            // 3. Cautam in baza de date
+            Optional<FlightRecord> passengerOpt = flightDatabaseService.getPassengerFlightDetails(flight.trim(), lastName, firstName);
 
             // 3. Daca NU gasim pasagerul, returnam eroare 404 Not Found
             if (passengerOpt.isEmpty()) {

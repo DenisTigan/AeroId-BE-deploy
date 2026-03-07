@@ -4,5 +4,7 @@ public record VerifyResponse(
         boolean isMatch,
         String passengerName,
         String flight,
-        String message
+        String message,
+        Double distance,
+        String aiMessage
 ) {}

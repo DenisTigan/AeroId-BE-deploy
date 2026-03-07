@@ -71,8 +71,8 @@ public class EnrollController {
 
             // 3. Extragem Numele si Prenumele
             String[] nameParts = name.split(" ", 2);
-            String lastName = nameParts.length > 0 ? nameParts[0] : "Nume";
-            String firstName = nameParts.length > 1 ? nameParts[1] : "Prenume";
+            String firstName = nameParts.length > 0 ? nameParts[0] : "Prenume"; // Andrei
+            String lastName = nameParts.length > 1 ? nameParts[1] : "Nume";     // Ticarat
             String date = java.time.LocalDate.now().toString();
 
             // 4. CONSTRUIM STRING-UL
