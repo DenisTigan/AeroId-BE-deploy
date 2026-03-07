@@ -50,7 +50,7 @@ public class EnrollController {
 
         try {
             // 1. Curatam numele (reparam problema cu %20)
-            String cleanName = name.replace("%20", " ");
+            String cleanName = name.replace("%20", " ").toLowerCase();
             String[] nameParts = cleanName.trim().split(" ", 2);
             String firstName = nameParts.length > 0 ? nameParts[0].trim() : "";
             String lastName = nameParts.length > 1 ? nameParts[1].trim() : "";
@@ -109,4 +109,42 @@ public class EnrollController {
                     .body("Eroare interna la emiterea biletului.");
         }
     }
+
+    @GetMapping("/check-passenger")
+    public ResponseEntity<?> checkPassengerBeforeEnroll(
+            @RequestParam("name") String name,
+            @RequestParam("flight") String flight) {
+
+        try {
+            // 1. Curatam si pregatim datele (exact cu aceeasi logica de la enroll)
+            String cleanName = name.replace("%20", " ").toLowerCase();
+            String[] nameParts = cleanName.trim().split(" ", 2);
+            String firstName = nameParts.length > 0 ? nameParts[0].trim() : "";
+            String lastName = nameParts.length > 1 ? nameParts[1].trim() : "";
+
+            // 2. Cautam in baza de date
+            Optional<FlightRecord> passengerOpt = flightDatabaseService.getPassengerFlightDetails(flight.trim(), lastName, firstName);
+
+            // 3. Daca NU il gasim, returnam eroare 404 (React va tine camera inchisa)
+            if (passengerOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body("Eroare: Pasagerul nu a fost gasit in baza de date pentru acest zbor.");
+            }
+
+            // 4. Daca il gasim, impachetam Numele si Zborul intr-un JSON si le returnam
+            java.util.Map<String, String> responseData = new java.util.HashMap<>();
+            responseData.put("name", name);       // Returneaza numele trimis
+            responseData.put("flight", flight);   // Returneaza zborul trimis
+            responseData.put("status", "success");
+            responseData.put("message", "Pasager gasit! Permisiune de a deschide camera acordata.");
+
+            return ResponseEntity.ok(responseData);
+
+        } catch (Exception e) {
+            System.err.println("Eroare la check-passenger: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Eroare interna la interogarea bazei de date.");
+        }
+    }
+
 }
