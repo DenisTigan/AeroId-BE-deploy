@@ -97,8 +97,11 @@ public class EnrollController {
             // 4c. Daca totul e perfect, extragem vectorul din interiorul obiectului
             String justTheVector = biometricNode.get("biometric_vector").asText();
 
-            // 5. Calculam data de expirare (Acum + 48 ore)
-            java.time.LocalDateTime expirationDate = java.time.LocalDateTime.now().plusHours(48);
+
+            // 5. Calculam data de expirare (Acum + 48 ore) si taiem secundele
+            java.time.LocalDateTime expirationDate = java.time.LocalDateTime.now()
+                    .plusHours(48)
+                    .truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
             String expirationString = expirationDate.toString();
 
             // 6. CONSTRUIM STRING-UL (Vector + Nume + Prenume + Zbor + Data Expirare)
