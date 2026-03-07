@@ -11,6 +11,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 
 import java.util.Optional;
 
@@ -75,19 +78,24 @@ public class EnrollController {
             }
 
             // 4. Taierea vectorului biometric
-            String justTheVector = "";
-            if (pythonJsonResponse.contains("\"biometric_vector\":\"")) {
-                int startIndex = pythonJsonResponse.indexOf("\"biometric_vector\":\"") + 20;
-                int endIndex = pythonJsonResponse.indexOf("\"", startIndex);
-                justTheVector = pythonJsonResponse.substring(startIndex, endIndex);
-            } else if (pythonJsonResponse.contains("\"biometric_vector\": \"")) {
-                int startIndex = pythonJsonResponse.indexOf("\"biometric_vector\": \"") + 21;
-                int endIndex = pythonJsonResponse.indexOf("\"", startIndex);
-                justTheVector = pythonJsonResponse.substring(startIndex, endIndex);
-            } else {
-                justTheVector = "Vector_Negasit";
-                System.out.println("Atentie: Nu am gasit 'biometric_vector' in JSON-ul de la Python!");
+            // 4. Parsam JSON-ul NOU de la Python folosind ObjectMapper
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode rootNode = mapper.readTree(pythonJsonResponse);
+
+            // 4a. Verificam regula "Bouncer-ului" (YOLO Rejection)
+            if (rootNode.has("multiple_persons") && rootNode.get("multiple_persons").asBoolean()) {
+                return ResponseEntity.badRequest().body("Eroare de securitate: Au fost detectate mai multe persoane în cadru! Doar o singură persoană este permisă.");
             }
+
+            // 4b. Verificam daca vectorul biometric lipseste (DeepFace Error / No face)
+            JsonNode biometricNode = rootNode.get("biometric_vector");
+            if (biometricNode == null || biometricNode.isNull() || !biometricNode.has("biometric_vector")) {
+                String aiMessage = rootNode.has("message") ? rootNode.get("message").asText() : "Nu a fost detectată nicio față.";
+                return ResponseEntity.badRequest().body("Eroare AI: " + aiMessage);
+            }
+
+            // 4c. Daca totul e perfect, extragem vectorul din interiorul obiectului
+            String justTheVector = biometricNode.get("biometric_vector").asText();
 
             // 5. Calculam data de expirare (Acum + 48 ore)
             java.time.LocalDateTime expirationDate = java.time.LocalDateTime.now().plusHours(48);

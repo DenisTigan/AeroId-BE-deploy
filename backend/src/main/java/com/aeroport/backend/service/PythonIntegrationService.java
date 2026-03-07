@@ -37,7 +37,6 @@ public class PythonIntegrationService {
         }
     }
 
-    // Schimbam tipul returnat din boolean in PythonVerifyResult
     public PythonVerifyResult verifyFaceWithPython(String encryptedImage, String biometricVector) {
         String pythonVerifyUrl = "https://aeroid-py.ticaratandrei.dev/api/verify";
         PythonVerifyRequest requestBody = new PythonVerifyRequest(encryptedImage, biometricVector);
@@ -55,28 +54,40 @@ public class PythonIntegrationService {
                 ObjectMapper mapper = new ObjectMapper();
                 JsonNode rootNode = mapper.readTree(responseBody);
 
-                // Cautam obiectul "verification_results" in JSON-ul de la Python
-                if (rootNode.has("verification_results")) {
-                    JsonNode resultsNode = rootNode.get("verification_results");
-
-                    // Extragem fiecare valoare in parte, cu grija la null-uri
-                    boolean isMatch = resultsNode.has("is_match") && resultsNode.get("is_match").asBoolean();
-
-                    Double distance = null;
-                    if (resultsNode.hasNonNull("distance")) {
-                        distance = resultsNode.get("distance").asDouble();
-                    }
-
-                    String message = "Fara mesaj";
-                    if (resultsNode.hasNonNull("message")) {
-                        message = resultsNode.get("message").asText();
-                    }
-
-                    // Returnam pachetul complet!
-                    return new PythonVerifyResult(isMatch, distance, message);
+                // --- NOU: 1. Verificam "Tailgating-ul" (mai multe persoane la poarta) ---
+                if (rootNode.has("multiple_persons") && rootNode.get("multiple_persons").asBoolean()) {
+                    String msg = rootNode.hasNonNull("message") ? rootNode.get("message").asText() : "Acces Respins! Mai multe persoane detectate.";
+                    return new PythonVerifyResult(false, null, msg);
                 }
+
+                // --- NOU: 2. Verificam daca lipseste complet obiectul verification_results (ex: nicio persoana) ---
+                if (!rootNode.hasNonNull("verification_results")) {
+                    String msg = rootNode.hasNonNull("message") ? rootNode.get("message").asText() : "Eroare: Nu a fost detectată nicio față.";
+                    return new PythonVerifyResult(false, null, msg);
+                }
+
+                // 3. Daca totul e bine, extragem datele de match
+                JsonNode resultsNode = rootNode.get("verification_results");
+
+                boolean isMatch = resultsNode.has("is_match") && resultsNode.get("is_match").asBoolean();
+
+                Double distance = null;
+                if (resultsNode.hasNonNull("distance")) {
+                    distance = resultsNode.get("distance").asDouble();
+                }
+
+                String message = "Fara mesaj";
+                if (resultsNode.hasNonNull("message")) {
+                    message = resultsNode.get("message").asText();
+                } else if (rootNode.hasNonNull("message")) {
+                    message = rootNode.get("message").asText(); // fallback pe root message
+                }
+
+                // Returnam pachetul complet!
+                return new PythonVerifyResult(isMatch, distance, message);
             }
-            // Fail-safe: daca JSON-ul e prost, returnam false si date goale
+
+            // Fail-safe: daca JSON-ul e prost
             return new PythonVerifyResult(false, null, "Eroare la parsarea JSON-ului din Python.");
 
         } catch (Exception e) {
